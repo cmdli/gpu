@@ -12,10 +12,15 @@
 `define NOP 9
 `define SYNC 10
 `define SPWN 11
+`define ST 12
 
-module core(input clk, input doNextIns, input enable,
-            input overwrite, input [15:0] newPc, output halted,
-            output [15:0] memIn1, input [15:0] memOut1);
+module core(input clk,  input enable, 
+            input         doNextIns, output nextInsReady,
+            input         overwrite, input [15:0] newPc, output halted,
+            output [15:0] memIn1, input [15:0] memOut1,
+            output        memWrite, output [15:0] memWriteAddr, output [15:0] memWriteData,
+            output        spawnNewProcess, output [3:0] spawnID, output [15:0] spawnPC,
+            output        sync, output [15:0] syncGroup);
 
    reg [15:0] state = 16'h0000;
    reg [15:0] pc = 16'h0000;
@@ -26,13 +31,34 @@ module core(input clk, input doNextIns, input enable,
    wire [3:0] t = inst[3:0];
    wire [7:0] ii = inst[11:4];
    wire [11:0] jjj = inst[11:0];
+   wire [7:0]  ss = inst[7:0];
+
+   assign spawnNewProcess = state == 1 && op == `SPWN;
+   assign spawnID = a;
+   assign spawnPC = ss;
+
+   assign sync = state == 1 & op == `SYNC;
+   assign syncGroup = jjj;
    
+   assign memWrite = state == 1 && op == `ST;
+   assign memWriteAddr = ss;
+   assign memWriteData = regs[a];
+   
+   assign nextInsReady = state == 0;
    assign memIn1 = state == 0 ? pc : 
                    state == 1 ? (op == `LD ? ii : op == `LDR ? regs[a]+regs[b] : 16'hxxxx) : 
                    16'hxxxx;
    assign halted = state == 2;
 
    reg [15:0]  regs[15:0];
+
+   genvar      i;
+   generate
+       for(i = 0; i < 16; i = i + 1) begin
+           always @(regs[i])
+             $display("#regs[%d]: %d", i, regs[i]);
+       end
+   endgenerate
    
    always @(posedge clk) begin
        if(overwrite) begin
@@ -89,6 +115,10 @@ module core(input clk, input doNextIns, input enable,
                    `JGT: begin
                        if(regs[a] > regs[b]) pc <= pc + t;
                        else pc <= pc + 1;
+                       state <= 0;
+                   end
+                   default: begin
+                       pc <= pc + 1;
                        state <= 0;
                    end
                  endcase // case (op)
