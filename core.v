@@ -14,13 +14,19 @@
 `define SPWN 11
 `define ST 12
 
-module core(input clk,  input enable, 
-            input         doNextIns, output nextInsReady,
-            input         overwrite, input [15:0] newPc, output halted,
-            output [15:0] memIn1, input [15:0] memOut1,
-            output        memWrite, output [15:0] memWriteAddr, output [15:0] memWriteData,
-            output        spawnNewProcess, output [3:0] spawnID, output [15:0] spawnPC,
-            output        sync, output [15:0] syncGroup);
+`define F0 0
+`define E0 1
+`define H0 2
+`define L0 3
+`define W0 4
+
+module core(input clk, input [4:0] coreID, input enable, 
+            input  doNextIns, output nextInsReady,
+            input  overwrite, input [15:0] newPc, output halted,
+            output memRead1, output [15:0] memIn1, input memReady1, input [15:0] memOut1,
+            output memWrite, output [15:0] memWriteAddr, output [15:0] memWriteData,
+            output spawnNewProcess, output [3:0] spawnID, output [15:0] spawnPC,
+            output sync, output [15:0] syncGroup);
 
    reg [15:0] state = 16'h0000;
    reg [15:0] pc = 16'h0000;
@@ -45,6 +51,9 @@ module core(input clk,  input enable,
    assign memWriteData = regs[a];
    
    assign nextInsReady = state == 0;
+   assign memRead1 = state == 0 ? 1 : 
+                     state == 1 ? 1 :
+                     16'hxxxx;
    assign memIn1 = state == 0 ? pc : 
                    state == 1 ? (op == `LD ? ii : op == `LDR ? regs[a]+regs[b] : 16'hxxxx) : 
                    16'hxxxx;
@@ -56,7 +65,7 @@ module core(input clk,  input enable,
    generate
        for(i = 0; i < 16; i = i + 1) begin
            always @(regs[i])
-             $display("#regs[%d]: %d", i, regs[i]);
+             $display("#(%d) regs[%d]: %d", coreID, i, regs[i]);
        end
    endgenerate
    
@@ -67,65 +76,81 @@ module core(input clk,  input enable,
        end
        else if(enable) begin
            case(state)
-             0: begin
+             `F0: begin
                  if(doNextIns) begin
                      state <= 1;
                      inst <= memOut1;
                  end
              end
-             1: begin
+             `E0: begin
                  case(op)
                    `MOV: begin
                        regs[t] <= ii;
                        pc <= pc + 1;
-                       state <= 0;
+                       state <= `F0;
                    end
                    `ADD: begin
                        regs[t] <= regs[a] + regs[b];
                        pc <= pc + 1;
-                       state <= 0;
+                       state <= `F0;
                    end
                    `JMP: begin
                        pc <= jjj;
-                       state <= 0;
+                       state <= `F0;
                    end
                    `HALT: begin
-                       state <= 2;
+                       state <= `H0;
                    end
                    `LD: begin
-                       regs[t] <= memOut1;
-                       pc <= pc + 1;
-                       state <= 0;
+                       if(memReady1) begin
+                           regs[t] <= memOut1;
+                           pc <= pc + 1;
+                           state <= `F0;
+                       end
+                       else
+                         state <= `L0;
                    end
                    `LDR: begin
-                       regs[t] <= memOut1;
-                       pc <= pc + 1;
-                       state <= 0;
+                       if(memReady1) begin
+                           regs[t] <= memOut1;
+                           pc <= pc + 1;
+                           state <= `F0;
+                       end
+                       else
+                         state <= `L0;
                    end
                    `JEQ: begin
                        if(regs[a] == regs[b]) pc <= pc + t;
                        else pc <= pc + 1;
-                       state <= 0;
+                       state <= `F0;
                    end
                    `JLT: begin
                        if(regs[a] < regs[b]) pc <= pc + t;
                        else pc <= pc + 1;
-                       state <= 0;
+                       state <= `F0;
                    end
                    `JGT: begin
                        if(regs[a] > regs[b]) pc <= pc + t;
                        else pc <= pc + 1;
-                       state <= 0;
+                       state <= `F0;
                    end
                    default: begin
                        pc <= pc + 1;
-                       state <= 0;
+                       state <= `F0;
                    end
                  endcase // case (op)
              end // case: 1
-             2: begin // Halting
+             `H0: begin // Halting
              end
-             
+             `L0: begin // Reading
+                 if(memReady1) begin
+                     regs[t] <= memOut1;
+                     pc <= pc + 1;
+                     state <= `F0;
+                 end
+             end
+             `W0: begin // writing
+             end
            endcase // case (state)
        end
        

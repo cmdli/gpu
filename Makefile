@@ -1,3 +1,5 @@
+SHELL=/bin/bash
+
 VFILES=$(wildcard *.v)
 
 cpu : $(VFILES) Makefile
