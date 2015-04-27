@@ -155,7 +155,7 @@ module main();
        //If all cores in a group are ready let them go
        for(i = 1; i < 16; i = i + 1) begin
            always @(posedge clk) begin
-               if((~coreReady & syncGroups[i]) == 0) begin // Logical implication
+               if(syncGroups[i] & coreReady == syncGroups[i]) begin
                    for(j = 0; j < 16; j = j + 1)
                      if(syncGroups[i][j]) coresGo[j] <= 1;
                end

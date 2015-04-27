@@ -15,10 +15,12 @@
 `define ST 12
 
 `define F0 0
-`define E0 1
-`define H0 2
-`define L0 3
-`define W0 4
+`define F1 1
+`define F2 2
+`define E0 3
+`define H0 4
+`define L0 5
+`define W0 6
 
 module core(input clk, input [4:0] coreID, input enable, 
             input  doNextIns, output nextInsReady,
@@ -39,25 +41,23 @@ module core(input clk, input [4:0] coreID, input enable,
    wire [11:0] jjj = inst[11:0];
    wire [7:0]  ss = inst[7:0];
 
-   assign spawnNewProcess = state == 1 && op == `SPWN;
+   assign spawnNewProcess = state == `E0 && op == `SPWN;
    assign spawnID = a;
    assign spawnPC = ss;
 
-   assign sync = state == 1 & op == `SYNC;
+   assign sync = state == `E0 & op == `SYNC;
    assign syncGroup = jjj;
    
-   assign memWrite = state == 1 && op == `ST;
+   assign memWrite = state == `E0 && op == `ST;
    assign memWriteAddr = ss;
    assign memWriteData = regs[a];
    
-   assign nextInsReady = state == 0;
-   assign memRead1 = state == 0 ? 1 : 
-                     state == 1 ? 1 :
-                     16'hxxxx;
-   assign memIn1 = state == 0 ? pc : 
-                   state == 1 ? (op == `LD ? ii : op == `LDR ? regs[a]+regs[b] : 16'hxxxx) : 
+   assign nextInsReady = state == `F2;
+   assign memRead1 = state == `F0 || (state == `E0 && (op == `LD || op == `LDR));
+   assign memIn1 = state == `F0 ? pc : 
+                   state == `E0 ? (op == `LD ? ii : op == `LDR ? regs[a]+regs[b] : 16'hxxxx) : 
                    16'hxxxx;
-   assign halted = state == 2;
+   assign halted = state == `H0;
 
    reg [15:0]  regs[15:0];
 
@@ -72,14 +72,27 @@ module core(input clk, input [4:0] coreID, input enable,
    always @(posedge clk) begin
        if(overwrite) begin
            pc <= newPc;
-           state <= 0;
+           state <= `F0;
        end
        else if(enable) begin
            case(state)
              `F0: begin
-                 if(doNextIns) begin
-                     state <= 1;
+                 if(memReady1) begin
                      inst <= memOut1;
+                     state <= `F2;
+                 end
+                 else
+                   state <= `F1;
+             end
+             `F1: begin
+                 if(memReady1) begin
+                     inst <= memOut1;
+                     state <= `F2;
+                 end
+             end
+             `F2: begin
+                 if(doNextIns) begin
+                     state <= `E0;
                  end
              end
              `E0: begin
