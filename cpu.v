@@ -25,6 +25,7 @@ module main();
    initial begin
        $dumpfile("cpu.vcd");
        $dumpvars(1,main);
+       $dumpvars(1,count);
        syncGroups[0] = 16'hFFFF;
        for(j = 1; j < 16; j = j + 1)
          syncGroups[j] <= 0;
@@ -36,14 +37,31 @@ module main();
            initial begin
                $dumpfile("cpu.vcd");
                $dumpvars(1, cores[i].inst);
+               $dumpvars(1, coreReadTimer[i]);
                coreEnable[i] <= 0;
            end
        end
    endgenerate
-   
+
+   wire [15:0] insDoneThisCycle = (coreEnable[0] && coreDoNextIns[0] && coreReady[0]) +
+                           (coreEnable[1] && coreDoNextIns[1] && coreReady[1]) +
+                           (coreEnable[2] && coreDoNextIns[2] && coreReady[2]) +
+                           (coreEnable[3] && coreDoNextIns[3] && coreReady[3]) +
+                           (coreEnable[4] && coreDoNextIns[4] && coreReady[4]) +
+                           (coreEnable[5] && coreDoNextIns[5] && coreReady[5]) +
+                           (coreEnable[6] && coreDoNextIns[6] && coreReady[6]) +
+                           (coreEnable[7] && coreDoNextIns[7] && coreReady[7]) +
+                           (coreEnable[8] && coreDoNextIns[8] && coreReady[8]) +
+                           (coreEnable[9] && coreDoNextIns[9] && coreReady[9]) +
+                           (coreEnable[10] && coreDoNextIns[10] && coreReady[10]) +
+                           (coreEnable[11] && coreDoNextIns[11] && coreReady[11]) +
+                           (coreEnable[12] && coreDoNextIns[12] && coreReady[12]) +
+                           (coreEnable[13] && coreDoNextIns[13] && coreReady[13]) +
+                           (coreEnable[14] && coreDoNextIns[14] && coreReady[14]) +
+                           (coreEnable[15] && coreDoNextIns[15] && coreReady[15]);
    wire clk;
    clock c0(clk);
-   counter count(coreHalted[0], clk, 1, cycle);
+   counter count(coreHalted[0], clk, insDoneThisCycle != 0, insDoneThisCycle, cycle);
 
    reg [15:0] mem[1023:0];
 
@@ -54,6 +72,7 @@ module main();
    wire        memRead[15:0];
    wire [15:0] memIn[15:0];
    wire [15:0] memOut[15:0];
+   wire        memReady[15:0];
    wire        memWrite[15:0];
    wire [15:0] memWriteAddr[15:0];
    wire [15:0] memWriteData[15:0];
@@ -64,12 +83,13 @@ module main();
    wire [15:0] coreSpawnPC[15:0];
    wire        coreSync[15:0];
    wire [15:0] coreSyncGroup[15:0];
+   wire        coreDoingIns[15:0];
    generate
        for(i = 0; i < 16; i = i + 1) begin : cores
            core inst(clk, i, coreEnable[i],
                      coreDoNextIns[i], coreReady[i],
                      coreOverwrite[i], coreNewPC[i], coreHalted[i],
-                     memRead[i], memIn[i], 1, memOut[i],
+                     memRead[i], memIn[i], memReady[i], memOut[i],
                      memWrite[i], memWriteAddr[i], memWriteData[i],
                      coreSpawn[i], coreSpawnID[i], coreSpawnPC[i],
                      coreSync[i], coreSyncGroup[i]);
@@ -77,13 +97,27 @@ module main();
    endgenerate
 
    
-   reg coreReadReq[15:0];
-   reg coreReadAddr[15:0];
+   reg [15:0] coreReadAddr[15:0];
+   reg [15:0] coreReadTimer[15:0];
+   initial begin
+       for(j = 0; j < 16; j = j + 1) begin
+           coreReadTimer[j] <= 0;
+           coreReadAddr[j] <= 0;
+       end
+   end
    genvar      i;
    generate
        for(i = 0; i < 16; i = i + 1) begin
-           assign memOut[i] = mem[memIn[i]];
-           assign coreDoNextIns[i] = 1;
+           always @(posedge clk) begin
+               if(memRead[i]) begin
+                   coreReadAddr[i] <= memIn[i];
+                   coreReadTimer[i] <= 12;
+               end
+               else if(coreReadTimer[i] != 0)
+                 coreReadTimer[i] <= coreReadTimer[i] - 1;
+           end
+           assign memOut[i] = coreReadTimer[i] == 1 ? mem[coreReadAddr[i]] : 16'hxxxx;
+           assign memReady[i] = coreReadTimer[i] == 1;
        end
    endgenerate
    always @(posedge clk) begin
@@ -132,12 +166,11 @@ module main();
 
    
    reg [15:0] syncGroups[15:0];
-
    
    reg [15:0] coresGo = 0;
-   always @(posedge clk) begin
+   /*always @(posedge clk) begin
        coresGo <= 0;
-   end
+   end*/
    generate
        //Add a core to a specific group if it requests it
        for(i = 0; i < 16; i = i + 1) begin
@@ -155,6 +188,7 @@ module main();
        //If all cores in a group are ready let them go
        for(i = 1; i < 16; i = i + 1) begin
            always @(posedge clk) begin
+               coresGo = 0;
                if(syncGroups[i] & coreReady == syncGroups[i]) begin
                    for(j = 0; j < 16; j = j + 1)
                      if(syncGroups[i][j]) coresGo[j] <= 1;
@@ -173,6 +207,7 @@ module main();
            if(syncGroups[0][j]) coresGo[j] <= 1;
    end
 
+   //Print changes to syncGroups
    generate
        for(i = 0; i < 16; i = i + 1) begin
             always @(syncGroups[i])

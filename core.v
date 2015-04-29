@@ -44,7 +44,7 @@ module core(input clk, input [4:0] coreID, input enable,
    assign spawnNewProcess = state == `E0 && op == `SPWN;
    assign spawnID = a;
    assign spawnPC = ss;
-
+   
    assign sync = state == `E0 & op == `SYNC;
    assign syncGroup = jjj;
    
