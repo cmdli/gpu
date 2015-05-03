@@ -21,6 +21,7 @@
 `define H0 4
 `define L0 5
 `define W0 6
+`define S0 7
 
 module core(input clk, input [4:0] coreID, input enable, 
             input  doNextIns, output nextInsReady,
@@ -28,8 +29,10 @@ module core(input clk, input [4:0] coreID, input enable,
             output memRead1, output [15:0] memIn1, input memReady1, input [15:0] memOut1,
             output memWrite, output [15:0] memWriteAddr, output [15:0] memWriteData,
             output spawnNewProcess, output [3:0] spawnID, output [15:0] spawnPC,
-            output sync, output [15:0] syncGroup);
+            output sync, output [15:0] syncGroup,
+            output waitOnGroup, input groupReady);
 
+   reg             synced = 0;
    reg [15:0] state = 16'h0000;
    reg [15:0] pc = 16'h0000;
    reg [15:0] inst;
@@ -41,6 +44,8 @@ module core(input clk, input [4:0] coreID, input enable,
    wire [11:0] jjj = inst[11:0];
    wire [7:0]  ss = inst[7:0];
 
+   assign waitOnGroup = state == `S0;
+   
    assign spawnNewProcess = state == `E0 && op == `SPWN;
    assign spawnID = a;
    assign spawnPC = ss;
@@ -52,7 +57,7 @@ module core(input clk, input [4:0] coreID, input enable,
    assign memWriteAddr = ss;
    assign memWriteData = regs[a];
    
-   assign nextInsReady = state == `F2;
+   assign nextInsReady = state == `F2 || halted;
    assign memRead1 = state == `F0 || (state == `E0 && (op == `LD || op == `LDR));
    assign memIn1 = state == `F0 ? pc : 
                    state == `E0 ? (op == `LD ? ii : op == `LDR ? regs[a]+regs[b] : 16'hxxxx) : 
@@ -147,6 +152,21 @@ module core(input clk, input [4:0] coreID, input enable,
                        else pc <= pc + 1;
                        state <= `F0;
                    end
+                   `SYNC: begin
+                       if(jjj != 0) begin
+                           synced <= 1;
+                           if(synced) begin
+                               state <= `S0;
+                           end
+                           else begin
+                               pc <= pc + 1;
+                               state <= `F0;
+                           end
+                       end
+                       else begin
+                         synced <= 0;
+                       end
+                   end
                    default: begin
                        pc <= pc + 1;
                        state <= `F0;
@@ -163,6 +183,12 @@ module core(input clk, input [4:0] coreID, input enable,
                  end
              end
              `W0: begin // writing
+             end
+             `S0: begin // barrier
+                 if(groupReady) begin
+                     pc <= pc + 1;
+                     state <= `F0;
+                 end
              end
            endcase // case (state)
        end
